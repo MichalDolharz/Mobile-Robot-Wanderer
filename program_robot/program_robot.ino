@@ -68,6 +68,8 @@ HCSR04 sensor(TRIG, ECHO);                          //!< A HC-SR04 sensor.
 enum movementState direction = movementState::stop; //!< A state of current movement direction/type (might be turn).
 bool sensorBlockade = 0;                            //!< A flag to be set true if sensor detects an obstacle.
 bool safetyFlag = true; //!< programmably set to false for UART debugging. Motors will be deactivated, so the current won't damge computer.
+bool flag = true;
+bool need = false;
 /*!
  * @brief Setup funtion.
  */
@@ -125,14 +127,81 @@ void loop()
             // Print data.
             //printJoystick(data[0], data[1]);
 
-            // Check axes.
-            x = checkXAxis(data[0]);
-            y = checkYAxis(data[1]);
+            if(data[0] == -1)
+            {
+              flag = data[1];
+            }
+            else if(flag == true)
+            {
+              // Check axes.
+              x = checkXAxis(data[0]);
+              y = checkYAxis(data[1]);
+              need = true;
 
-            // Change movement or keep the same without overwrite.
-            movementChange(x, y);
+              // Change movement or keep the same without overwrite.
+              movementChange(x, y);
+            }
+        }
+
+        // Remote control mode.
+        if(flag == true)
+        {
+          need = false;
+          movementChange(x, y);
+        }
+        // Autonomous mode.
+        else
+        {
+          while(!radio.available())
+          {
+            wander();
+          }
+          move(motorMode::stop);
         }
     }
+}
+
+/*!
+ * @brief Wandering mode. Robot will be avoiding obstacles and wander around.
+ */
+void wander()
+{
+  unsigned long timeSaved = millis();
+  unsigned long turningTime;;
+  int turnType;
+  int distance;
+
+  move(motorMode::forward);
+
+  distance = sensor.dist();
+
+  if (distance <= STOP_RANGE)
+  {
+    move(motorMode::stop);
+
+    turningTime = random(500, 2500); // random turn time
+    turnType = random(0, 3); // random turn type
+
+    switch(turnType)
+    {
+      case 0:
+        turnRightIP();
+        break;
+      case 1:
+        turnLeftIP();
+        break;
+      case 2:
+        turnRightOW(motorMode::backward);
+        break;
+      case 3:
+        turnLeftOW(motorMode::backward);
+        break;
+    }
+
+    while(millis() - timeSaved <= turningTime)
+    {    } // turn time
+
+  }
 }
 
 /*!
