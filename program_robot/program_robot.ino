@@ -6,16 +6,20 @@
 #include <RF24.h>
 #include <SPI.h>
 #include <nRF24L01.h>
+#include <HCSR04.h>
 
 // Defines
-#define M_LEFT_BACKWARD 4  //!< A left motor "backward" pin.
-#define M_LEFT_FORWARD 5   //!< A left motor "forward" pin.
+#define TRIG 2             //!< A TRIG pin of sensor.
+#define ECHO 3             //!< An ECHO pin of sensor.
+#define M_LEFT_BACKWARD 4  //!< A "backward" pin of left motor.
+#define M_LEFT_FORWARD 5   //!< A "forward" pin of left motor.
 #define PWM 6              //!< Motors PWM pin.
-#define M_RIGHT_BACKWARD 7 //!< A right motor "backward" pin.
-#define M_RIGHT_FORWARD 8  //!< A right motor "forward" pin.
-#define CE 9               //!< A nRF24L01 CK (chip enable, transfer/receive) pin.
-#define CSN 10             //!< A nRF24L01 CSN (chip select, send/read SPI commands) pin.
+#define M_RIGHT_BACKWARD 7 //!< A "backward" pin of right motor.
+#define M_RIGHT_FORWARD 8  //!< A "forward" pin of right motor.
+#define CE 9               //!< A CK (chip enable, transfer/receive) pin of nRF24L01.
+#define CSN 10             //!< A CSN (chip select, send/read SPI commands) pin of nRF24L01.
 #define MOTORS_ON_OFF 14   //!< Motors on/off switch pin
+#define STOP_RANGE 15      //!< A distance (in centimeters) from an obstacle for which the robot will stop.
 
 /*!
  * @brief A motor mode type, based on a truth table of L293 integrated circuit.
@@ -58,14 +62,12 @@ enum class joystickState
 };
 
 // Variables
-const uint64_t pipe = 0x8392b5ac58LL;               //!< A pipe address, same as in a remote control program.
-RF24 radio(CE, CSN);                                //!< A RF24 object, communicates with an other nRF24L01 device.
-int data[2];                                        //!< A data to be received from an other device.
-bool flag = true;                                   //!< A flag to set motors on/off.
-enum movementState direction = movementState::stop; //!< A state of current movement direction/type (might be turn).
-enum joystickState x = joystickState::center;       //!< A state of joystick x axis.
-enum joystickState y = joystickState::center;       //!< A state of joystick y axis.
 
+RF24 radio(CE, CSN);                                //!< A RF24 object, communicates with an other nRF24L01 device.
+HCSR04 sensor(TRIG, ECHO);                          //!< A HC-SR04 sensor.
+enum movementState direction = movementState::stop; //!< A state of current movement direction/type (might be turn).
+bool sensorBlockade = 0;                            //!< A flag to be set true if sensor detects an obstacle.
+bool safetyFlag = true; //!< programmably set to false for UART debugging. Motors will be deactivated, so the current won't damge computer.
 /*!
  * @brief Setup funtion.
  */
@@ -83,6 +85,7 @@ void setup()
     Serial.begin(9600);
 
     // Configure nRF24L01.
+    const uint64_t pipe = 0x8392b5ac58LL; //!< A pipe address, same as in a remote control program.
     radio.begin();
     radio.setPALevel(RF24_PA_LOW);   // devices are close, otherwise PA_MAX or PA_HIGH
     radio.setDataRate(RF24_250KBPS); // lowest transmission speed
@@ -99,89 +102,152 @@ void setup()
  */
 void loop()
 {
+    static int data[2];  //!< A data to be received from an other device.
+    static int distance; //!< A distance measured by a sensor.
+    static enum joystickState x = joystickState::center; //!< A state of joystick x axis.
+    static enum joystickState y = joystickState::center; //!< A state of joystick y axis.
 
     // Check if there is available data to read.
     if (motorsON() == true)
     {
-        if (radio.available())
+
+        distance = sensor.dist();
+
+        // Check if robot is in stop range. Stop motors if necessary.
+        checkDistance(distance);
+
+        // Check if nRF24L01 received any data
+        if (radio.available() && safetyFlag == true)
         {
             // Read data.
             radio.read(data, sizeof(data));
 
             // Print data.
-            printJoystick(data[0], data[1]);
+            //printJoystick(data[0], data[1]);
 
-            // Check y axis.
-            if (data[1] > 900)
-                y = joystickState::forward;
-            else if (data[1] < 100)
-                y = joystickState::backward;
-            else
-                y = joystickState::center;
+            // Check axes.
+            x = checkXAxis(data[0]);
+            y = checkYAxis(data[1]);
 
-            // Check x axis.
-            if (data[0] > 900)
-                x = joystickState::left;
-            else if (data[0] < 100)
-                x = joystickState::right;
-            else
-                x = joystickState::center;
+            // Change movement or keep the same without overwrite.
+            movementChange(x, y);
+        }
+    }
+}
 
-            // forward
-            if (y == joystickState::forward && x == joystickState::center && direction != movementState::forward)
-            {
-                move(motorMode::forward);
-                direction = movementState::forward;
-            }
-            // backward
-            else if (y == joystickState::backward && x == joystickState::center && direction != movementState::backward)
-            {
-                move(motorMode::backward);
-                direction = movementState::backward;
-            }
-            // stop
-            else if (y == joystickState::center && x == joystickState::center && direction != movementState::stop)
+/*!
+ * @brief Checks distance measured by a sensor. If necessary, stops motors and sets a flag.
+ * @param[in] distance Distance measured by a sensor.
+ */
+void checkDistance(int distance)
+{
+          if (distance <= STOP_RANGE)
+        {
+            sensorBlockade = true;
+
+            // Stop robot if going forward
+            if (direction == movementState::forward || direction == movementState::turnLeftOWForward || direction == movementState::turnRightOWForward)
             {
                 move(motorMode::stop);
                 direction = movementState::stop;
             }
-            // turn left in place
-            else if (y == joystickState::center && x == joystickState::right && direction != movementState::turnRightIP)
-            {
-                turnRightIP();
-                direction = movementState::turnRightIP;
-            }
-            // turn right in place
-            else if (y == joystickState::center && x == joystickState::left && direction != movementState::turnLeftIP)
-            {
-                turnLeftIP();
-                direction = movementState::turnLeftIP;
-            }
-            // turn left one wheel forward
-            else if (y == joystickState::forward && x == joystickState::left && direction != movementState::turnLeftOWForward)
-            {
-                turnLeftOW(motorMode::forward);
-                direction = movementState::turnLeftOWForward;
-            }
-            // turn left one wheel backward
-            else if (y == joystickState::backward && x == joystickState::left && direction != movementState::turnLeftOWBackward)
-            {
-                turnLeftOW(motorMode::backward);
-                direction = movementState::turnLeftOWBackward;
-            }
-            // turn right one wheel forward
-            else if (y == joystickState::forward && x == joystickState::right && direction != movementState::turnRightOWForward)
-            {
-                turnRightOW(motorMode::forward);
-                direction = movementState::turnRightOWForward;
-            }
-            // turn right one wheel backward
-            else if (y == joystickState::backward && x == joystickState::right && direction != movementState::turnRightOWBackward)
-            {
-                turnRightOW(motorMode::backward);
-                direction = movementState::turnRightOWBackward;
-            }
         }
+        else
+        {
+            sensorBlockade = false;
+        }
+}
+
+/*!
+ * @brief Checks data of y axis from joystick and returns joystick state type value.
+ * @param[in] data A raw data of y axis from joystick.
+ * @return Return joystickState value.
+ */
+enum joystickState checkYAxis(int data)
+{
+    if (data > 900)
+        return joystickState::forward;
+    else if (data < 100)
+        return joystickState::backward;
+    else
+        return joystickState::center;
+}
+
+/*!
+ * @brief Checks data of x axis from joystick and returns joystick state type value.
+ * @param[in] data A raw data of x axis from joystick.
+ * @return Return joystickState value.
+ */
+enum joystickState checkXAxis(int data)
+{
+    // Check x axis.
+    if (data > 900)
+        return joystickState::left;
+    else if (data < 100)
+        return joystickState::right;
+    else
+        return joystickState::center;
+}
+
+/*!
+ * @brief A function that determines movement based on x and y joystickState values. There is nine different possibilities.
+ * @param[in] mode A movement type to be set.
+ */
+void movementChange(enum joystickState x, enum joystickState y)
+{
+    // forward
+    if (y == joystickState::forward && x == joystickState::center && direction != movementState::forward && sensorBlockade == false)
+    {
+        move(motorMode::forward);
+        direction = movementState::forward;
+    }
+    // backward
+    else if (y == joystickState::backward && x == joystickState::center && direction != movementState::backward)
+    {
+        move(motorMode::backward);
+        direction = movementState::backward;
+    }
+    // stop
+    else if (y == joystickState::center && x == joystickState::center && direction != movementState::stop)
+    {
+        move(motorMode::stop);
+        direction = movementState::stop;
+    }
+    // turn left in place
+    else if (y == joystickState::center && x == joystickState::right && direction != movementState::turnRightIP)
+    {
+        turnRightIP();
+        direction = movementState::turnRightIP;
+    }
+    // turn right in place
+    else if (y == joystickState::center && x == joystickState::left && direction != movementState::turnLeftIP)
+    {
+        turnLeftIP();
+        direction = movementState::turnLeftIP;
+    }
+    // turn left one wheel forward
+    else if (y == joystickState::forward && x == joystickState::left && direction != movementState::turnLeftOWForward && sensorBlockade == false)
+    {
+        turnLeftOW(motorMode::forward);
+        direction = movementState::turnLeftOWForward;
+    }
+    // turn left one wheel backward
+    else if (y == joystickState::backward && x == joystickState::left && direction != movementState::turnLeftOWBackward)
+    {
+        turnLeftOW(motorMode::backward);
+        direction = movementState::turnLeftOWBackward;
+    }
+    // turn right one wheel forward
+    else if (y == joystickState::forward && x == joystickState::right && direction != movementState::turnRightOWForward && sensorBlockade == false)
+    {
+        turnRightOW(motorMode::forward);
+        direction = movementState::turnRightOWForward;
+    }
+    // turn right one wheel backward
+    else if (y == joystickState::backward && x == joystickState::right && direction != movementState::turnRightOWBackward)
+    {
+        turnRightOW(motorMode::backward);
+        direction = movementState::turnRightOWBackward;
     }
 }
 
