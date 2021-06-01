@@ -46,7 +46,7 @@ void setup()
     radio.setDataRate(RF24_250KBPS); // Lowest transmission speed.
     radio.openWritingPipe(pipe);     // Channel one.
 
-    //digitalWrite(LED_GREEN, HIGH);  // Power ON information.
+    digitalWrite(LED_GREEN, remoteStatus); // Remote mode ON information
     digitalWrite(LED_RED, HIGH); // Power ON information.
     //digitalWrite(LED_YELLOW, HIGH); // Power ON information.
     //delay(200);
@@ -86,12 +86,12 @@ void loop()
         sw = getSwitchState();
         if (sw == true)
         {
-            sensorStatus = !sensorStatus;
+            remoteStatus = !remoteStatus;
             data[0] = -1;           // Value that robot recognize as mode change.
-            data[1] = sensorStatus; // Mode flag change.
+            data[1] = remoteStatus; // Mode flag change.
 
             radio.write(data, sizeof(data));
-            digitalWrite(LED_GREEN, sensorStatus);
+            digitalWrite(LED_GREEN, remoteStatus);
 
             // Make sure the button is unpressed.
             while (sw == true)

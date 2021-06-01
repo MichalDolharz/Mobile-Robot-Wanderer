@@ -175,11 +175,11 @@ void wander()
 
   distance = sensor.dist();
 
-  if (distance <= STOP_RANGE)
+  if (distance <= STOP_RANGE * 2)
   {
     move(motorMode::stop);
 
-    turningTime = random(500, 2500); // random turn time
+    turningTime = random(500, 1000); // random turn time
     turnType = random(0, 3); // random turn type
 
     switch(turnType)
