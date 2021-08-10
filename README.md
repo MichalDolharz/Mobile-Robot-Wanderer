@@ -20,20 +20,20 @@ A source code documentation is created with Doxygen with graphic interface Doxyw
 ## Electronics
 
 A robot scheme
-!(A robot scheme)[https://github.com/Repti993/Mobile-Robot-Wanderer/blob/main/img/robot_scheme.png]
+!(A robot scheme)[img/robot_scheme.png]
 
 A remote controle scheme
-!(A remote controle scheme)[https://github.com/Repti993/Mobile-Robot-Wanderer/blob/main/img/remote_control_scheme.png]
+!(A remote controle scheme)[img/remote_control_scheme.png]
 
 For a PCB project check out [the final report](https://github.com/Repti993/Mobile-Robot-Wanderer/blob/main/reports/Report_stage_3_final.pdf)
  
 ## Photos
 
 A robot photo
-!(A robot scheme)[https://github.com/Repti993/Mobile-Robot-Wanderer/blob/main/img/robot_photo.jpg]
+!(A robot scheme)[img/robot_photo.jpg]
 
 A remote controle photo
-!(A remote controle scheme)[https://github.com/Repti993/Mobile-Robot-Wanderer/blob/main/img/remote_control_photo.jpg]
+!(A remote controle scheme)[img/remote_control_photo.jpg]
 
 ## Issues
 
